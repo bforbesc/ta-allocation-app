@@ -14,7 +14,8 @@ def upload_excel_file(label):
             df = pd.read_excel(uploaded_file)
             return df
         except Exception as e:
-            st.error(f"Please upload a valid file!")
+            # st.error(f"Please upload a valid file!")
+            st.error(f"An error occurred while reading the file: {e}")
     return None
 
 def upload_preferences_excel(label):
@@ -24,7 +25,8 @@ def upload_preferences_excel(label):
             df = pd.read_excel(uploaded_file, header=1) # only difference is the "header"
             return df
         except Exception as e:
-            st.error(f"Please upload a valid file!")
+            # st.error(f"Please upload a valid file!")
+            st.error(f"An error occurred while reading the file: {e}")
     return None
 
 

@@ -74,6 +74,16 @@ else:
 # PART 1: LIST OF COURSES (DSD)
 #########################################################################################################################################
 st.markdown("""### Faculty courses""")
+st.markdown("""
+Make sure your file has the following columns, including the correct capitalization (ex. "TERM" instead of "term"):
+- `TERM`
+- `CYCLE`
+- `COURSE CODE`
+- `COURSE NAME`
+- `LANGUAGE`
+- `CLASS`
+- `SLOTS`
+""")
 
 dsd_df = upload_excel_file("Please upload the course list")
 if dsd_df is not None:
@@ -122,6 +132,11 @@ if dsd_df is not None:
         )
 
 st.markdown("""### BS course weights""") 
+st.markdown("""
+Make sure you keep the same structure as ```bs_courses_weights_EMPTY.xlsx``` and that you do not accidently add any new number to any other cell / column in the file 
+(which might involutanrily and automatically create new columns).
+""")
+
 bs_weights_df = upload_excel_file("Please upload bachelor's courses weights")
 if bs_weights_df is not None:
     bs_weights_df = bs_weights_df[["course", "weight"]]
@@ -131,7 +146,15 @@ if bs_weights_df is not None:
 # PART 2: TAs CURRENT CONTRACT
 #########################################################################################################################################
 # INPUT #2
-st.markdown("""### TAs capacity""") 
+st.markdown("""### TAs capacity""")
+st.markdown("""
+Make sure your file has the following columns, including the correct capitalization (ex. "contract" instead of "Contract"):
+- `TA`
+- `contract`
+
+Also, make sure you have up-to-date e-mails (column `TA`) as this might impair the matching process with the other information pieces.
+
+""")
 contract = upload_excel_file("Please upload the TAs contract file")
 if contract is not None:
     contract["TA"] = contract["TA"].str.lower()
@@ -147,7 +170,13 @@ if contract is not None:
 # PART 3.1: Cleaning the data
 ###############################################################
 # INPUT #3
-st.markdown("""### TAs preferences""") 
+st.markdown("""### TAs preferences""")
+st.markdown("""
+Your file should have the same column names as the previous semester (assumes the survey questions are the same) or at least very similar.
+Example: the question/ column *"Do you prefer to be assigned to Bachelor’s or Master's courses? Bear in mind that in most master's courses, you're going to support Course Instructors in grading or similar duties."* 
+can still be read if only *"Do you prefer to be assigned to Bachelor’s or Master's courses"* is provided.
+""")
+
 preferences_df = upload_preferences_excel("Please upload the TAs preferences")
 if preferences_df is not None:
     # Sort the DataFrame by "End Date" column in descending order

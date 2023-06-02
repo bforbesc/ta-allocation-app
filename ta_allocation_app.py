@@ -37,9 +37,9 @@ st.title("🧩 Teaching Assistants Allocation")
 
 st.markdown("""
 ## Table of contents
-1. [Application overview](#overview)
-1. [Required inputs](#inputs)
-1. [Analysis & outputs](#outputs)
+1. [Application overview](#application-overview)
+1. [Required inputs](#required-inputs)
+1. [Analysis & outputs](##analysis-outputs)
 
 ## Aplication overview
 The purpose of this application is to assign Teaching Assistants (TAs) to the faculty courses, taking into account various factors such as their contract percentage, individual preferences, and the specific needs of each course. 
@@ -49,13 +49,13 @@ By analyzing this information, the app streamlines the allocation process, ensur
 st.markdown("""
 ## Required inputs
 The app requires the following pieces of information, which are accepted as Excel files:
-1. [Faculty courses](#courses): list of courses for (bachelor's and master's) with respective number of classes and expected number of students
+1. [Faculty courses](#faculty-courses): list of courses for (bachelor's and master's) with respective number of classes and expected number of students
     - A file ```bs_courses_weights_EMPTY.xlsx``` is generated from the list of courses, which can be obtained by clicking on the download button
     - The file should be filled in with the courses' respective weigths in the column ```weight```
-1. [BS course weights](#weights): Bachelor's courses weights (conversion from needs to TAs contract percentage)
+1. [BS course weights](#bs-course-weights): Bachelor's courses weights (conversion from needs to TAs contract percentage)
     - After filling in ```bs_courses_weights_EMPTY.xlsx```, the file should be then (re)uploaded to the platform
-1. [TAs capacity](#capacity): TAs current contract percentage (from previous semester)
-1. [TAs preferences](#preferences): TAs course and contract preferences
+1. [TAs capacity](##tas-capacity): TAs current contract percentage (from previous semester)
+1. [TAs preferences](#tas-preferences): TAs course and contract preferences
 
 Finally, the current semester should be selected.
 

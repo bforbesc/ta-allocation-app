@@ -156,6 +156,40 @@ if preferences_df is not None:
     # Rename the column to "TA"
     preferences_df.rename(columns={'Please write your E-mail @novasbe.pt': 'TA'}, inplace=True)
 
+    # Create a new dataframe with column names and zero-indexed column numbers
+    column_df = pd.DataFrame({'Column Name': preferences_df.columns,
+                          'Column Number': range(len(preferences_df.columns))})
+
+    # Determine column numbers to use in the rest of the code    
+    column_17 = column_df[column_df['Column Name'] == "Full Name"].iloc[0]["Column Number"]
+    column_18 = column_df[column_df['Column Name'] == "TA"].iloc[0]["Column Number"]
+
+    continue_str = "Do you intend to continue your collaboration with Nova SBE next semester"
+    continue_just_str = "Please write here a short justification on why you do not intend to continue"
+    bs_or_ms_str = "Do you prefer to be assigned to Bachelor’s or Master's courses?"
+    load_availability_str = "What is your availability in terms of workload and contract percentage for the next semester?"
+    ms_student_str = "In the upcoming semester, are you going to be a Nova SBE student?"
+    phd_restrictions_str = "Being a PhD student, do you have any constraint in the number of teaching hours or contract percentage"
+    new_workload_str = "What is your availability in terms of workload and contract percentage for the next semester"
+
+    column_19 = column_df[column_df['Column Name'].str.startswith(continue_str)].iloc[0]["Column Number"]
+    column_20 = column_df[column_df['Column Name'].str.startswith(continue_just_str)].iloc[0]["Column Number"]
+    column_21 = column_df[column_df['Column Name'].str.startswith(ms_student_str)].iloc[0]["Column Number"]
+    column_22 = column_df[column_df['Column Name'].str.startswith(bs_or_ms_str)].iloc[0]["Column Number"]
+    column_23 = column_df[column_df['Column Name'].str.startswith(phd_restrictions_str)].iloc[0]["Column Number"]
+    column_27 = column_df[column_df['Column Name'].str.startswith(load_availability_str)].iloc[0]["Column Number"]
+    column_28 = column_df[column_df['Column Name'].str.startswith(new_workload_str)].iloc[0]["Column Number"]
+    column_29 = column_28 + 1 # Be careful! This assumes there are TWO text boxes for available workload percentage
+
+    bs_str = "Please choose below your teaching preferences for Bachelor Courses."
+    column_30 = column_df[column_df['Column Name'].str.startswith(bs_str)].iloc[0]["Column Number"]
+    column_31 = column_30 + 1 # BE careful! This assumes there is ONE open text columns for bachelors preferences
+
+    ms_str = "Please choose below your teaching preferences for Masters Courses (grading)."
+    column_81 = column_df[column_df['Column Name'].str.startswith(ms_str)].iloc[0]["Column Number"]
+    column_82 = column_81 + 1 # BE careful! This assumes there are TWO open text columns for master preferences
+    column_83 = column_81 + 2 # BE careful! This assumes there are TWO open text columns for master preferences
+
     # Convert the values in the "TA" column to lowercase
     preferences_df['TA'] = preferences_df['TA'].str.lower()
 
@@ -170,7 +204,7 @@ if preferences_df is not None:
     preferences_duplicates_last = preferences_duplicates.drop_duplicates(subset='TA', keep='first').copy()
 
     # Create a mask to check if columns 31:81 or 83:347 have values
-    value_mask = preferences_duplicates.iloc[:, 31:81].notnull().any(axis=1) | preferences_duplicates.iloc[:, 83:347].notnull().any(axis=1)
+    value_mask = preferences_duplicates.iloc[:, column_31:column_81].notnull().any(axis=1) | preferences_duplicates.iloc[:, column_83:-1].notnull().any(axis=1)
     preferences_duplicates_values = preferences_duplicates[value_mask]
     preferences_duplicates_values = preferences_duplicates_values.drop_duplicates(subset='TA', keep='first').copy()
 
@@ -184,7 +218,7 @@ if preferences_df is not None:
     preferences_df_final = preferences_duplicates_last.copy()
 
     # Get the relevant columns from preferences_duplicates_values
-    preference_columns = preferences_duplicates_values.columns[31:81].tolist() + preferences_duplicates_values.columns[83:347].tolist()
+    preference_columns = preferences_duplicates_values.columns[column_31:column_81].tolist() + preferences_duplicates_values.columns[column_83:-1].tolist()
 
     # Update the values in preferences_df_final using values from preferences_duplicates_values for preference_columns
     preferences_df_final.set_index('TA', inplace=True, drop=False)
@@ -217,25 +251,25 @@ if preferences_df is not None:
     preferences_df_final.rename(columns=mapping, inplace=True)
 
     # Drop columns with list of courses (redundant) [30, 81, and 82]
-    preferences_df_final.drop(columns=preferences_df_final.iloc[:,[30, 81, 82]], inplace=True)
+    preferences_df_final.drop(columns=preferences_df_final.iloc[:,[column_30, column_81, column_82]], inplace=True)
 
     # OUTPUT #2: TAs LEAVING THIS SEMESTER
-    output_2 = preferences_df_final[preferences_df_final.iloc[:, 19] == "No"].iloc[:, [17, 18, 20]]
+    output_2 = preferences_df_final[preferences_df_final.iloc[:, column_19] == "No"].iloc[:, [column_17, column_18, column_20]]
     output_2 = output_2.rename(columns={output_2.columns[-1]: "Comments"}).sort_values("Full Name")
     
     ta_exits_list = output_2.TA.unique()
 
     # Filter the DataFrame for rows where "Do you intend to continue your collaboration with Nova SBE next semester as Teaching Assistant?" (column 20) is not equal to "No"
-    preferences_df_final = preferences_df_final[preferences_df_final.iloc[:, 19] != "No"]
+    preferences_df_final = preferences_df_final[preferences_df_final.iloc[:, column_19] != "No"]
 
     # OUTPUT #3: TAs COMMENTS
-    output_3 = preferences_df_final[~preferences_df_final.iloc[:,-1].isna()].iloc[:, [17, 18, -1]]
+    output_3 = preferences_df_final[~preferences_df_final.iloc[:,-1].isna()].iloc[:, [column_17, column_18, -1]]
 
     # OUTPUT #4: TAs EMAILS FROM SURVEY WHICH ARE NOT IN THE TA CONTRACT DATABASE
     output_4 = preferences_df_final[~preferences_df_final["TA"].isin(contract_emails)][["TA", "Full Name"]]
 
     # Get the course columns
-    course_columns = preferences_df_final.columns[30:-1]
+    course_columns = preferences_df_final.columns[column_30:-1]
 
     # Create a new DataFrame for the adapted format
     adapted_df = pd.DataFrame(columns=["TA", "course", "preference", "preference_type"])
@@ -269,7 +303,7 @@ if preferences_df is not None:
         preference_rankings = combined_column[non_null_mask]
 
         # Get the corresponding preference types based on the translation mapping
-        preference_types = non_null_df.iloc[:, 22].map(translation_mapping)
+        preference_types = non_null_df.iloc[:, column_22].map(translation_mapping)
 
         # Create a DataFrame for the current course, preference rankings, and preference types
         course_df = pd.DataFrame({"TA": teacher_names, "course": [course] * len(teacher_names),
@@ -361,8 +395,8 @@ if preferences_df is not None:
         pd.NaT: 0
     }
 
-    mask = preferences_df_final.iloc[:, 27].notna()
-    new_contract = preferences_df_final[mask].iloc[:, [18, 21, 23, 27, 28, 29]]
+    mask = preferences_df_final.iloc[:, column_27].notna()
+    new_contract = preferences_df_final[mask].iloc[:, [column_18, column_21, column_23, column_27, column_28, column_29]]
 
     new_contract.columns = ['TA', 'master_student', 'PhD_restrictions', 'change_load', 'new_contract_decreased_load', 'new_contract_increased_load']
     new_contract['change_load'] = new_contract['change_load'].map(mapping)

@@ -29,6 +29,46 @@ def upload_preferences_excel(label):
             st.error(f"An error occurred while reading the file: {e}")
     return None
 
+def round_to_closest(value):
+        if pd.isnull(value):
+            return np.nan
+        else:
+            capped_value = min(value, 0.5)  # Cap the value at 0.5
+            capped_value = max(value, 0.1)  # Cap the value at 0.1
+            return capped_value
+
+def clean_percentage(value): # Clean the "load_requested" column
+    if pd.isnull(value):
+        return value
+    elif isinstance(value, str):
+        # Check if the value contains only text characters
+        if value.isalpha():
+            return np.nan
+
+        # Extract numeric values from string
+        numeric_value = ''.join(filter(str.isdigit, value))
+
+        if numeric_value == '':
+            return np.nan
+
+        if numeric_value == '100':
+            return 100
+
+        if len(numeric_value) >= 2:
+            integer_part = numeric_value[:2]
+            decimal_part = numeric_value[2:]
+            return float(integer_part + '.' + decimal_part)
+
+        return np.nan
+
+    elif isinstance(value, (int, float)):
+        return float(value) / 100
+
+    return value
+
+def decrease_contract_level(value):
+    return value - 0.125
+
 
 #########################################################################################################################################
 
@@ -100,9 +140,16 @@ if dsd_df is not None:
         'CLASS': 'count',
         'SLOTS': np.sum
     }
+
+    # Creat list of faculty's emails
+    faculty_list = dsd_df[dsd_df["COURSE NAME"] != "Stata"]["FACULTY EMAIL"].unique()
+
+    # Assume that BS courses without "FACULTY NAME" are teorico-practicas
+    teorico_practicas = dsd_df[(dsd_df["FACULTY NAME"].isna()) & (dsd_df["CYCLE"] == "BSC")]["COURSE NAME"].unique()
+    dsd_df = dsd_df.drop(dsd_df[(dsd_df["COURSE NAME"].isin(teorico_practicas)) & (dsd_df["FACULTY NAME"].notna())].index)
     
     # OUTPUT #1: LIST OF COURSES IMPORTED
-    output_1 = dsd_df.groupby(['COURSE NAME', 'TERM', 'COURSE CODE', 'LANGUAGE']).agg(agg_functions).reset_index()
+    output_1 = dsd_df.groupby(['COURSE NAME', 'TERM', 'COURSE CODE', 'LANGUAGE', 'CYCLE']).agg(agg_functions).reset_index()
     output_1 = output_1.rename(columns={'CLASS': 'Nº CLASSES', 'SLOTS': 'Nº STUDENTS'})
 
     # Table actually used for computations (different from OUPUT #1)
@@ -148,19 +195,21 @@ if bs_weights_df is not None:
 # INPUT #2
 st.markdown("""### TAs capacity""")
 st.markdown("""
-Make sure your file has the following columns, including the correct capitalization (ex. "contract" instead of "Contract"):
+Make sure your file has the following columns, including the correct capitalization (ex. "CONTRACT" instead of "Contract"):
 - `TA`
-- `contract`
+- `CONTRACT`
 
 Also, make sure you have up-to-date e-mails (column `TA`) as this might impair the matching process with the other information pieces.
 
 """)
 contract = upload_excel_file("Please upload the TAs contract file")
 if contract is not None:
+    contract = contract[["TA", "CONTRACT"]]
     contract["TA"] = contract["TA"].str.lower()
-    # Drop contracts with zero percentage
-    zero_contracts = contract[contract['contract'] == 0]["TA"].unique()
-    contract = contract[contract['contract'] != 0]
+    # Drop contracts with zero percentage and faculty emails
+    zero_contracts = contract[contract['CONTRACT'] == 0]["TA"].unique()
+    contract = contract[contract['CONTRACT'] != 0]
+    contract = contract[~contract['TA'].isin(faculty_list)]
     contract_emails = contract.TA.unique()
 
 
@@ -199,7 +248,7 @@ if preferences_df is not None:
     load_availability_str = "What is your availability in terms of workload and contract percentage for the next semester?"
     ms_student_str = "In the upcoming semester, are you going to be a Nova SBE student?"
     phd_restrictions_str = "Being a PhD student, do you have any constraint in the number of teaching hours or contract percentage"
-    new_workload_str = "What is your availability in terms of workload and contract percentage for the next semester"
+    new_workload_str = "What is your availability in terms of workload and contract percentage for the next semester?"
 
     column_19 = column_df[column_df['Column Name'].str.startswith(continue_str)].iloc[0]["Column Number"]
     column_20 = column_df[column_df['Column Name'].str.startswith(continue_just_str)].iloc[0]["Column Number"]
@@ -207,7 +256,8 @@ if preferences_df is not None:
     column_22 = column_df[column_df['Column Name'].str.startswith(bs_or_ms_str)].iloc[0]["Column Number"]
     column_23 = column_df[column_df['Column Name'].str.startswith(phd_restrictions_str)].iloc[0]["Column Number"]
     column_27 = column_df[column_df['Column Name'].str.startswith(load_availability_str)].iloc[0]["Column Number"]
-    column_28 = column_df[column_df['Column Name'].str.startswith(new_workload_str)].iloc[0]["Column Number"]
+    column_28 = column_27 + 1
+    # column_28 = column_df[column_df['Column Name'].str.startswith(new_workload_str)].iloc[0]["Column Number"]
     column_29 = column_28 + 1 # Be careful! This assumes there are TWO text boxes for available workload percentage
 
     bs_str = "Please choose below your teaching preferences for Bachelor Courses."
@@ -224,6 +274,9 @@ if preferences_df is not None:
 
     # Remove TAs with zero_contracts
     preferences_df = preferences_df[~preferences_df["TA"].isin(zero_contracts)]
+
+    # Remove TAs wicha are faculty
+    preferences_df = preferences_df[~preferences_df["TA"].isin(faculty_list)]
 
     # Create a mask to identify duplicates in the "TA" column
     duplicates_mask = preferences_df.duplicated(subset='TA', keep=False)
@@ -353,7 +406,9 @@ if preferences_df is not None:
         completed_preferences = adapted_df["TA"].unique()
 
     # OUTPUT #5: TAs COURSE PREFERENCES
-    output_5 = adapted_df.iloc[:,:-1]
+    # output_5 = adapted_df.iloc[:,:-1]
+    # Added "master_course" column
+    output_5 = adapted_df.copy()
 
     # OUTPUT #6: TAs TO CONTACT (WHO DID NOT FILL-IN THE SURVEY AND ARE NOT LEAVING)
     output_6 = contract[(~contract.TA.isin(completed_preferences)) & (~contract.TA.isin(ta_exits_list))]
@@ -361,45 +416,6 @@ if preferences_df is not None:
 
     # PART 3.2: Checking contract changes requested
     ###############################################################
-    def round_to_closest(value):
-        if pd.isnull(value):
-            return np.nan
-        else:
-            capped_value = min(value, 0.5)  # Cap the value at 0.5
-            capped_value = max(value, 0.1)  # Cap the value at 0.1
-            return capped_value
-
-    def clean_percentage(value): # Clean the "load_requested" column
-        if pd.isnull(value):
-            return value
-        elif isinstance(value, str):
-            # Check if the value contains only text characters
-            if value.isalpha():
-                return np.nan
-
-            # Extract numeric values from string
-            numeric_value = ''.join(filter(str.isdigit, value))
-
-            if numeric_value == '':
-                return np.nan
-
-            if numeric_value == '100':
-                return 100
-
-            if len(numeric_value) >= 2:
-                integer_part = numeric_value[:2]
-                decimal_part = numeric_value[2:]
-                return float(integer_part + '.' + decimal_part)
-
-            return np.nan
-
-        elif isinstance(value, (int, float)):
-            return float(value) / 100
-
-        return value
-
-    def decrease_contract_level(value):
-        return value - 0.125
 
 
     mapping = {
@@ -456,22 +472,23 @@ if preferences_df is not None:
 
     # Decrease contract to load_requested for rows where change_load is -1
     filtered_contracts.loc[filtered_contracts['change_load'] == -1, 'new_contract'] = filtered_contracts['load_requested']
-    filtered_contracts.loc[(filtered_contracts['change_load'] == -1) & (filtered_contracts['load_requested'].isnull()), 'new_contract'] = filtered_contracts.apply(lambda row: decrease_contract_level(row['contract']), axis=1)
+    filtered_contracts.loc[(filtered_contracts['change_load'] == -1) & (filtered_contracts['load_requested'].isnull()), 'new_contract'] = filtered_contracts.apply(lambda row: decrease_contract_level(row['CONTRACT']), axis=1)
 
     # Fill NaN values with the original contract value
-    filtered_contracts['new_contract'].fillna(filtered_contracts['contract'], inplace=True)
+    filtered_contracts['new_contract'].fillna(filtered_contracts['CONTRACT'], inplace=True)
 
     # Create a new column "new_contract" in the original DataFrame with NaN values
     all_contracts['new_contract'] = np.nan
 
     # Update the "new_contract" column in the original DataFrame with the filtered values
     all_contracts.update(filtered_contracts[['new_contract']])
-    all_contracts['new_contract'].fillna(all_contracts['contract'], inplace=True)
+    all_contracts['new_contract'].fillna(all_contracts['CONTRACT'], inplace=True)
 
     # Drop emails which currently do not have a contract (ex. pedro.brinca)
-    all_contracts = all_contracts[all_contracts.contract.notna()]
+    all_contracts = all_contracts[all_contracts.CONTRACT.notna()]
 
-
+    # CHANGED! Drop columns which are not needed
+    all_contracts = all_contracts[["TA", "new_contract", "master_student"]]
 
     # PART 4: FINAL DATA
     #########################################################################################################################################
@@ -535,36 +552,129 @@ if preferences_df is not None:
     ###############################################################
     # Create the "semester" column based on the condition
     merged_market['semester'] = merged_market['course'].apply(lambda x: 1 if x.split(' || ')[2].startswith('S') else 0)
-    merged_market['ms_capacity'] = merged_market['new_contract'] * 36
+
+    # CHANGED!
+    # merged_market['ms_capacity'] = merged_market['new_contract'] * 36
 
     # Define a function to apply the conditions
+    # def calculate_weight(row):
+    #     if row['semester'] == 1:
+    #         return (row['number_students'] * 2.33) / 16
+    #     else:
+    #         return (row['number_students'] * 1.25) / 16
+
     def calculate_weight(row):
-        if row['semester'] == 1:
-            return (row['number_students'] * 2.33) / 16
+        if pd.isnull(row['semester']) or pd.isnull(row['masters_course']):
+            return np.nan
+        elif row['semester'] == 1 and row['masters_course'] == 1:
+            return ((row['number_students'] * 2.33) / 16) / 36
+        elif row['semester'] == 0 and row['masters_course'] == 1:
+            return ((row['number_students'] * 1.25) / 16) / 36
         else:
-            return (row['number_students'] * 1.25) / 16
+            return np.nan
 
     # Apply the function to create the 'ms_weight' column
-    merged_market['ms_weight'] = merged_market.apply(calculate_weight, axis=1)
+    # merged_market['ms_weight'] = merged_market.apply(calculate_weight, axis=1)
+    # CHANGED!
+    merged_market['weight'] = merged_market.apply(calculate_weight, axis=1)
 
     # Set 'ms_capacity' to NaN when 'masters_course' is 0
-    merged_market.loc[merged_market['masters_course'] == 0, 'ms_capacity'] = np.nan
-    merged_market.loc[merged_market['masters_course'] == 0, 'ms_weight'] = np.nan
+    # CHANGED!
+    # merged_market.loc[merged_market['masters_course'] == 0, 'ms_capacity'] = np.nan
+    # merged_market.loc[merged_market['masters_course'] == 0, 'ms_weight'] = np.nan
 
     # Final table
-    final_market = pd.merge(merged_market, bs_weights_df, on=["course"], how="left", suffixes=("", "_new"), indicator=True)
-    final_market.rename(columns={"weight": "bs_weight", "new_contract": "bs_capacity"}, inplace=True)
+    # final_market = pd.merge(merged_market, bs_weights_df, on=["course"], how="left", suffixes=("", "_new"), indicator=True)
+    # final_market.rename(columns={"weight": "bs_weight", "new_contract": "bs_capacity"}, inplace=True)
+    # CHANGED!
+    final_market = pd.merge(merged_market, bs_weights_df, on=["course"], how="left", suffixes=("", "_bs"), indicator=True)
+    final_market.rename(columns={"new_contract": "capacity"}, inplace=True)
     final_market.drop(columns="_merge", inplace=True)
-    final_market["bs_weight"] = final_market["bs_weight"] * final_market["number_classes"]
-    final_market.loc[final_market['masters_course'] == 1, 'bs_capacity'] = np.nan
-    final_market.loc[final_market['masters_course'] == 1, 'bs_weight'] = np.nan
+    final_market["weight"] = final_market["weight"].fillna(final_market["weight_bs"] * final_market["number_classes"])
+    final_market.drop(columns=["weight_bs"], inplace=True)
+    # final_market["bs_weight"] = final_market["bs_weight"] * final_market["number_classes"]
+    # final_market.loc[final_market['masters_course'] == 1, 'bs_capacity'] = np.nan
+    # final_market.loc[final_market['masters_course'] == 1, 'bs_weight'] = np.nan
 
     # OUTPUT #9: TAs AFFECTED BY COURSES WHICH ARE NOT MATCHED ON THE COURSE LIST (DSD)
     tas = final_market.TA.unique()
     output_9 = np.setdiff1d(completed_preferences, tas)
 
+    # Part 5: ALLOCATION
+    #########################################################################################################################################
+    ta_dict = final_market[['TA','capacity']].drop_duplicates()
+    ta_dict = dict(zip(ta_dict['TA'], ta_dict['capacity']))
 
-    # Part 5: OUTPUTS
+    # Select "easy" allocations for MS
+    ms_courses = final_market[(final_market['masters_course'] == 1) & (final_market['master_student'] == 0) & ((final_market['preference_type'] == 2) | (final_market['preference_type'] == 1)) & (final_market['preference'] == 1)]
+
+    # Create a dictionary with the courses and their weights
+    ms_courses_dict = ms_courses[['course','weight']].drop_duplicates()
+    ms_courses_dict = dict(zip(ms_courses_dict['course'], ms_courses_dict['weight']))
+
+    # Select "easy" allocations for MS
+    bs_courses = final_market[(final_market['masters_course'] == 0) & ((final_market['preference_type'] == 0) | (final_market['preference_type'] == 1)) & (final_market['preference'] == 1)]
+
+    # Create a dictionary with the courses and their weights
+    bs_courses_dict = bs_courses[['course','weight']].drop_duplicates()
+    bs_courses_dict = dict(zip(bs_courses['course'], bs_courses['weight']))
+
+    # Select relevant columns and sort values. IMPORTANT: the ascending order is important especially for preference_type which differes from BS and MS
+    ms_final_preferences = ms_courses[["TA", "preference_type", "preference", "course", "semester"]]
+    ms_final_preferences = ms_final_preferences.sort_values(by=["course", "preference_type", "preference"], ascending=[True, False, True])
+
+    bs_final_preferences = bs_courses[["TA", "preference_type", "preference", "course", "semester"]]
+    bs_final_preferences = bs_final_preferences.sort_values(by=["course", "preference_type", "preference"], ascending=[True, True, True])
+
+    # Allocation algorithm
+    ta_allocations = []
+
+    # MS
+    for _, row in bs_final_preferences.iterrows():
+        ta = row['TA']
+        course = row['course']
+        ta_capacity = ta_dict[ta]
+        course_weight = bs_courses_dict[course]
+        # Check if course can be allocated
+        if course_weight > 0:
+            # Check if TA still has capacity
+            if  ta_capacity > 0:
+                allocated_weight = min(course_weight, ta_capacity)
+                # Allocate course to TA
+                ta_allocations.append((ta, course, allocated_weight))
+                ta_dict[ta] -= allocated_weight
+                bs_courses_dict[course] -= allocated_weight
+            else:
+                try:
+                    bs_final_preferences = bs_final_preferences[bs_final_preferences['ta'] != ta]
+                except:
+                    continue
+        else:
+            bs_final_preferences = bs_final_preferences[bs_final_preferences['course'] != course]
+
+    for _, row in ms_final_preferences.iterrows():
+        ta = row['TA']
+        course = row['course']
+        ta_capacity = ta_dict[ta]
+        course_weight = ms_courses_dict[course]
+        # Check if course can be allocated
+        if course_weight > 0:
+            # Check if TA still has capacity
+            if  ta_capacity > 0:
+                allocated_weight = min(course_weight, ta_capacity)
+                # Allocate course to TA
+                ta_allocations.append((ta, course, allocated_weight))
+                ta_dict[ta] -= allocated_weight
+                ms_courses_dict[course] -= allocated_weight
+            else:
+                try:
+                    ms_final_preferences = ms_final_preferences[ms_final_preferences['ta'] != ta]
+                except:
+                    continue
+        else:
+            ms_final_preferences = ms_final_preferences[ms_final_preferences['course'] != course]
+
+    # Part 6: OUTPUTS
     #########################################################################################################################################
 
     output_vars = [output_1, output_2, output_3, output_4, output_5, output_6, output_7, output_8]
@@ -639,7 +749,8 @@ if preferences_df is not None:
 
     show_output_6 = st.checkbox("TAs who did not fill in the preferences and are not terminating")
     if show_output_6:
-        output_6.rename(columns={'contract': 'Contract'}, inplace=True)
+        output_6 = output_6.copy()
+        output_6.rename(columns={'CONTRACT': 'Contract'}, inplace=True)
         filtered_output_6 = output_6  
         filter_col = st.selectbox("Column", filtered_output_6.columns)  
         unique_values = filtered_output_6[filter_col].unique().tolist()
@@ -676,9 +787,12 @@ if preferences_df is not None:
 
     show_output_5 = st.checkbox("TAs ranked course preferences")
     if show_output_5:
-        output_5.rename(columns={'course': 'Course', "preference":"Preference", "preference_type": "Program preference"}, inplace=True)
+        # ADDED! "CYCLE"
+        output_5.rename(columns={'course': 'COURSE', "preference":"PREFERENCE", "preference_type": "CYCLE PREFERENCE", "masters_course": "CYCLE"}, inplace=True)
         mapping = {0: "BS", 1: "Indifferent", 2: "MS", np.NaN: "Indifferent"}
-        output_5["Program preference"] = output_5["Program preference"].map(mapping)
+        mapping_2 = {0: "BS", 1: "MS"}
+        output_5["CYCLE PREFERENCE"] = output_5["CYCLE PREFERENCE"].map(mapping)
+        output_5["CYCLE"] = output_5["CYCLE"].map(mapping_2)
         filtered_output_5 = output_5  
         filter_col = st.selectbox("Column", filtered_output_5.columns)
         unique_values = filtered_output_5[filter_col].unique().tolist()

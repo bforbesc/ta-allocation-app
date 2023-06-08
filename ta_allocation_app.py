@@ -79,7 +79,8 @@ st.markdown("""
 ## Table of contents
 1. [Application overview](#application-overview)
 1. [Required inputs](#required-inputs)
-1. [Analysis & outputs](##analysis-outputs)
+1. [Analysis](#analysis)
+1. [Main outputs (allocation tool)](#main-outputs-allocation-tool)
 
 ## Aplication overview
 The purpose of this application is to assign Teaching Assistants (TAs) to the faculty courses, taking into account various factors such as their contract percentage, individual preferences, and the specific needs of each course. 
@@ -102,7 +103,7 @@ Finally, the current semester should be selected.
 """, unsafe_allow_html=True)
 
 # Create a dropdown list to select the semester
-term = st.selectbox("Select Semester", ["S1", "S2"])
+term = st.selectbox("Select Semester", ["S1", "S2"], key="selectbox1")
 
 # Use the selected semester in your script
 if term == "S1":
@@ -151,8 +152,14 @@ if dsd_df is not None:
     # OUTPUT #1: LIST OF COURSES IMPORTED
     output_1 = dsd_df.groupby(['COURSE NAME', 'TERM', 'COURSE CODE', 'LANGUAGE', 'CYCLE']).agg(agg_functions).reset_index()
     output_1 = output_1.rename(columns={'CLASS': 'Nº CLASSES', 'SLOTS': 'Nº STUDENTS'})
+    
+    # Creat full course list for matching algorithm
+    full_courses = dsd_df[dsd_df['CYCLE'].isin(['MST', 'BSC', 'ME'])]
+    full_courses = full_courses.groupby(['course', 'CYCLE', 'TERM']).agg(agg_functions).reset_index()
 
     # Table actually used for computations (different from OUPUT #1)
+    course_demand = dsd_df[dsd_df['CYCLE'].isin(['MST', 'BSC'])]
+
     course_demand = dsd_df.groupby(['course']).agg(agg_functions).reset_index()
     course_demand = course_demand.rename(columns={'CLASS': 'number_classes', 'SLOTS': 'number_students'})
 
@@ -612,7 +619,8 @@ if preferences_df is not None:
     ms_courses_dict = ms_courses[['course','weight']].drop_duplicates()
     ms_courses_dict = dict(zip(ms_courses_dict['course'], ms_courses_dict['weight']))
 
-    # Select "easy" allocations for MS
+
+    # Select "easy" allocations for BS
     bs_courses = final_market[(final_market['masters_course'] == 0) & ((final_market['preference_type'] == 0) | (final_market['preference_type'] == 1)) & (final_market['preference'] == 1)]
 
     # Create a dictionary with the courses and their weights
@@ -674,6 +682,65 @@ if preferences_df is not None:
         else:
             ms_final_preferences = ms_final_preferences[ms_final_preferences['course'] != course]
 
+    # Get full course list    
+    full_course_weights = full_courses.merge(bs_weights_df, on="course", how="left")
+    full_course_weights.rename(columns={"course": "COURSE"}, inplace=True)
+
+    # Condition: If "CYCLE" == "BSC"
+    mask_bs = full_course_weights["CYCLE"] == "BSC"
+    full_course_weights.loc[mask_bs, "INITIAL NEEDS"] = full_course_weights.loc[mask_bs, "CLASS"] * full_course_weights.loc[mask_bs, "weight"]
+
+    # Condition: If "CYCLE" == "MST"
+    mask_ms = full_course_weights["CYCLE"] == "MST" 
+    def calculate_weight(row):
+        if pd.isnull(row['TERM']) or pd.isnull(row['CYCLE']):
+            return np.nan
+        elif row['TERM'].startswith('S') and row['CYCLE'] == 'MST':
+            return ((row['SLOTS'] * 2.33) / 16 ) / 36
+        elif row['TERM'].startswith('T') and row['CYCLE'] == 'MST':
+            return ((row['SLOTS'] * 1.25) / 16) / 36
+        else:
+            return np.nan
+
+    full_course_weights.loc[mask_ms, "INITIAL NEEDS"] = full_course_weights.loc[mask_ms].apply(calculate_weight, axis=1)
+    full_course_weights.drop(columns="weight", inplace=True)
+
+    # Get unique courses from the full_course_weights dataframe
+    all_courses = full_course_weights['COURSE'].unique()
+
+    # Create a dataframe for the courses and their needs
+    course_needs = pd.DataFrame({
+        "CYCLE": full_course_weights.loc[full_course_weights['COURSE'].isin(all_courses), 'CYCLE'],
+        "COURSE": all_courses,
+        "TERM": [full_course_weights[full_course_weights['COURSE'] == course]['TERM'].values[0] for course in all_courses],
+        "CLASSES": [full_course_weights[full_course_weights['COURSE'] == course]['CLASS'].values[0] for course in all_courses],
+        "SLOTS": [full_course_weights[full_course_weights['COURSE'] == course]['SLOTS'].values[0] for course in all_courses],
+        "INITIAL NEEDS": [full_course_weights[full_course_weights['COURSE'] == course]['INITIAL NEEDS'].values[0] for course in all_courses],
+        "NEEDS": [ms_courses_dict.get(course, bs_courses_dict.get(course, full_course_weights[full_course_weights['COURSE'] == course]['INITIAL NEEDS'].values[0])) for course in all_courses]
+        
+    })
+
+    # Multiply NEEDS and INITIAL NEEDS by 36 for CYCLE == MS
+    course_needs.loc[course_needs["CYCLE"] == "MST", ["NEEDS", "INITIAL NEEDS"]] *= 36
+
+    # Add the MATCH column based on the conditionsa
+    course_needs.loc[course_needs["CYCLE"] == "ME", "MATCH"] = "NO"
+    course_needs.loc[course_needs["INITIAL NEEDS"] == course_needs["NEEDS"], "MATCH"] = "NO"
+    course_needs.loc[(course_needs["INITIAL NEEDS"] != course_needs["NEEDS"]) & (course_needs["NEEDS"] > 0), "MATCH"] = "PARTIAL"
+    course_needs.loc[(course_needs["INITIAL NEEDS"] != course_needs["NEEDS"]) & (course_needs["NEEDS"] == 0), "MATCH"] = "MATCHED"
+
+    # OUPUT #10
+    output_10 = course_needs.copy()
+
+    # OUPUT #11
+    # Create a dataframe for the TA allocations
+    ta_allocations_df = pd.DataFrame(ta_allocations, columns=["TA", "COURSE", "LOAD"])
+    ta_allocations_df["CYCLE"] = ta_allocations_df["COURSE"].apply(lambda x: "MST" if x in ms_courses_dict else "BSC")
+
+    new_order = ['CYCLE', 'COURSE', 'TA', 'LOAD']
+    ta_allocations_df = ta_allocations_df[new_order]
+    output_11 = ta_allocations_df.copy()
+
     # Part 6: OUTPUTS
     #########################################################################################################################################
 
@@ -681,7 +748,7 @@ if preferences_df is not None:
     for output in output_vars:
         output.reset_index(inplace=True, drop=True)
 
-    st.markdown('## Analysis & outputs', unsafe_allow_html=True)    
+    st.markdown('## Analysis', unsafe_allow_html=True)    
 
     st.markdown('### Data processing issues', unsafe_allow_html=True)    
 
@@ -689,10 +756,10 @@ if preferences_df is not None:
     if show_output_4:
         st.write("")
         filtered_output_4 = output_4  
-        filter_col = st.selectbox("Column", filtered_output_4.columns)
+        filter_col = st.selectbox("Column", filtered_output_4.columns, key="selectbox2")
         unique_values = filtered_output_4[filter_col].unique().tolist()
         unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
+        filter_value = st.selectbox("Value", unique_values, key="selectbox3")
         if filter_value:
             if filter_value != "":
                 filtered_output_4 = filtered_output_4[filtered_output_4[filter_col].str.replace(',', '') == filter_value]
@@ -701,10 +768,10 @@ if preferences_df is not None:
     show_output_8 = st.checkbox("Courses from survey without match in course list")
     if show_output_8:
         filtered_output_8 = output_8  
-        filter_col = st.selectbox("Column", filtered_output_8.columns)
+        filter_col = st.selectbox("Column", filtered_output_8.columns, key="selectbox4")
         unique_values = filtered_output_8[filter_col].unique().tolist()
         unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
+        filter_value = st.selectbox("Value", unique_values, key="selectbox5")
         if filter_value:
             if filter_value != "":
                 filtered_output_8 = filtered_output_8[filtered_output_8[filter_col].str.replace(',', '') == filter_value]
@@ -721,10 +788,10 @@ if preferences_df is not None:
     show_output_2 = st.checkbox("TAs leaving this semester")
     if show_output_2:
         filtered_output_2 = output_2  # Assign output_2 to a filtered_output_2 variable
-        filter_col = st.selectbox("Column", filtered_output_2.columns)
+        filter_col = st.selectbox("Column", filtered_output_2.columns, key="selectbox6")
         unique_values = filtered_output_2[filter_col].unique().tolist()
         unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
+        filter_value = st.selectbox("Value", unique_values, key="selectbox7")
         if filter_value:
             if filter_value != "":
                 filtered_output_2 = filtered_output_2[filtered_output_2[filter_col].str.replace(',', '') == filter_value]
@@ -736,10 +803,10 @@ if preferences_df is not None:
         mapping = {0: "No change", 1: "Increase", -1: "Decrease"}
         output_7["Contract change"] = output_7["Contract change"].map(mapping)
         filtered_output_7 = output_7  
-        filter_col = st.selectbox("Column", filtered_output_7.columns)
+        filter_col = st.selectbox("Column", filtered_output_7.columns, key="selectbox8")
         unique_values = filtered_output_7[filter_col].unique().tolist()
         unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
+        filter_value = st.selectbox("Value", unique_values, key="selectbox9")
         if filter_value:
             if filter_value != "":
                 filtered_output_7 = filtered_output_7[filtered_output_7[filter_col].str.replace(',', '') == filter_value]
@@ -752,10 +819,10 @@ if preferences_df is not None:
         output_6 = output_6.copy()
         output_6.rename(columns={'CONTRACT': 'Contract'}, inplace=True)
         filtered_output_6 = output_6  
-        filter_col = st.selectbox("Column", filtered_output_6.columns)  
+        filter_col = st.selectbox("Column", filtered_output_6.columns, key="selectbox10")  
         unique_values = filtered_output_6[filter_col].unique().tolist()
         unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
+        filter_value = st.selectbox("Value", unique_values, key="selectbox11")
         if filter_value:
             if filter_value != "":
                 filtered_output_6 = filtered_output_6[filtered_output_6[filter_col].str.replace(',', '') == filter_value]
@@ -771,59 +838,116 @@ if preferences_df is not None:
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     
-    st.markdown('### Course preferences', unsafe_allow_html=True)
+    st.markdown('### Course list', unsafe_allow_html=True)
 
-    show_output_1 = st.checkbox("Course list")
+    show_output_1 = st.checkbox("Full course list (including PHD and ME)")
     if show_output_1:
         filtered_output_1 = output_1  
-        filter_col = st.selectbox("Column", filtered_output_1.columns)
+        filter_col = st.selectbox("Column", filtered_output_1.columns, key="selectbox12")
         unique_values = filtered_output_1[filter_col].unique().tolist()
         unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
+        filter_value = st.selectbox("Value", unique_values, key="selectbox13")
         if filter_value:
             if filter_value != "":
                 filtered_output_1 = filtered_output_1[filtered_output_1[filter_col].str.replace(',', '') == filter_value]
-        st.write(filtered_output_1)
-
-    show_output_5 = st.checkbox("TAs ranked course preferences")
-    if show_output_5:
-        # ADDED! "CYCLE"
-        output_5.rename(columns={'course': 'COURSE', "preference":"PREFERENCE", "preference_type": "CYCLE PREFERENCE", "masters_course": "CYCLE"}, inplace=True)
-        mapping = {0: "BS", 1: "Indifferent", 2: "MS", np.NaN: "Indifferent"}
-        mapping_2 = {0: "BS", 1: "MS"}
-        output_5["CYCLE PREFERENCE"] = output_5["CYCLE PREFERENCE"].map(mapping)
-        output_5["CYCLE"] = output_5["CYCLE"].map(mapping_2)
-        filtered_output_5 = output_5  
-        filter_col = st.selectbox("Column", filtered_output_5.columns)
-        unique_values = filtered_output_5[filter_col].unique().tolist()
-        unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
-        if filter_value:
-            if filter_value != "":
-                filtered_output_5 = filtered_output_5[filtered_output_5[filter_col].str.replace(',', '') == filter_value]
-        st.write(filtered_output_5)
-        # Provide download button for the Excel file
-        filtered_output_5.to_excel("ta_course_preferences.xlsx", index=False)
-        with open("ta_course_preferences.xlsx", "rb") as file:
-            file_data = file.read()
-            st.download_button(
-                label="Download this table",
-                data=file_data,
-                file_name="ta_course_preferences.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )   
+        st.write(filtered_output_1) 
         
+
+    st.markdown("""
+    ## Main outputs (allocation tool)
+    The app generates the following outputs, which should be copied and pasted as **values** into the respective sheets of the Excel tool:
+    1. [Course needs](#course-needs): workload required for all ```BSC```, ```MST``` and ```ME``` courses.
+        - Needs for ```BSC``` are in percentages, for ```MST``` in hours (for 36h work-week) and for ```ME``` are empty
+    1. [Cleaned TAs preferences](#cleaned-tas-preferences): TAs ranked course preferences cleaned
+    1. [Automatic allocation results](#automatic-allocation-results): Results for automatic allocations for first preferences for both bachelor's and masters' courses
+
+    Finally, the current semester should be selected.
+
+    """, unsafe_allow_html=True)    
+
+    st.markdown("""### Course needs""")
+
+    filtered_output_10 = output_10  
+    filter_col = st.selectbox("Column", filtered_output_10.columns, key="selectbox14")
+    unique_values = filtered_output_10[filter_col].unique().tolist()
+    unique_values.insert(0, "")  
+    filter_value = st.selectbox("Value", unique_values, key="selectbox15")
+    if filter_value:
+        if filter_value != "":
+            filtered_output_10 = filtered_output_10[filtered_output_10[filter_col].str.replace(',', '') == filter_value]
+    st.write(filtered_output_10)
+    # Provide download button for the Excel file
+    output_10.to_excel("course_needs.xlsx", index=False)
+    with open("course_needs.xlsx", "rb") as file:
+        file_data = file.read()
+        st.download_button(
+            label="Download this table",
+            data=file_data,
+            file_name="course_needs.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )   
+
+    st.markdown("""### Cleaned TAs preferences""")
+
+    output_5.rename(columns={'course': 'COURSE', "preference":"PREFERENCE", "preference_type": "CYCLE PREFERENCE", "masters_course": "CYCLE"}, inplace=True)
+    mapping = {0: "BSC", 1: "Indifferent", 2: "MST", np.NaN: "Indifferent"}
+    mapping_2 = {0: "BSC", 1: "MST"}
+    output_5["CYCLE PREFERENCE"] = output_5["CYCLE PREFERENCE"].map(mapping)
+    output_5["CYCLE"] = output_5["CYCLE"].map(mapping_2)
+    new_order = ['CYCLE', 'COURSE',	'TA','CYCLE PREFERENCE', 'PREFERENCE']
+    output_5 = output_5[new_order]
+    filtered_output_5 = output_5  
+    filter_col = st.selectbox("Column", filtered_output_5.columns, key="selectbox16")
+    unique_values = filtered_output_5[filter_col].unique().tolist()
+    unique_values.insert(0, "")  
+    filter_value = st.selectbox("Value", unique_values, key="selectbox17")
+    if filter_value:
+        if filter_value != "":
+            filtered_output_5 = filtered_output_5[filtered_output_5[filter_col].str.replace(',', '') == filter_value]
+    st.write(filtered_output_5)
+    # Provide download button for the Excel file
+    filtered_output_5.to_excel("ta_course_preferences.xlsx", index=False)
+    with open("ta_course_preferences.xlsx", "rb") as file:
+        file_data = file.read()
+        st.download_button(
+            label="Download this table",
+            data=file_data,
+            file_name="ta_course_preferences.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )  
+    
     show_output_3 = st.checkbox("TAs' comments")
     if show_output_3:
         filtered_output_3 = output_3  
-        filter_col = st.selectbox("Column", filtered_output_3.columns)
+        filter_col = st.selectbox("Column", filtered_output_3.columns, key="selectbox18")
         unique_values = filtered_output_3[filter_col].unique().tolist()
         unique_values.insert(0, "")  
-        filter_value = st.selectbox("Value", unique_values)
+        filter_value = st.selectbox("Value", unique_values, key="selectbox19")
         if filter_value:
             if filter_value != "":
                 filtered_output_3 = filtered_output_3[filtered_output_3[filter_col].str.replace(',', '') == filter_value]
         st.write(filtered_output_3)
 
+    st.markdown("""### Automatic allocation results""")
+
+    filtered_output_11 = output_11 
+    filter_col = st.selectbox("Column", filtered_output_11.columns, key="selectbox20")
+    unique_values = filtered_output_11[filter_col].unique().tolist()
+    unique_values.insert(0, "")  
+    filter_value = st.selectbox("Value", unique_values, key="selectbox21")
+    if filter_value:
+        if filter_value != "":
+            filtered_output_11 = filtered_output_11[filtered_output_11[filter_col].str.replace(',', '') == filter_value]
+    st.write(filtered_output_11)
+    # Provide download button for the Excel file
+    output_11.to_excel("ta_allocations_auto.xlsx", index=False)
+    with open("ta_allocations_auto.xlsx", "rb") as file:
+        file_data = file.read()
+        st.download_button(
+            label="Download this table",
+            data=file_data,
+            file_name="ta_allocations_auto.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ) 
     
     

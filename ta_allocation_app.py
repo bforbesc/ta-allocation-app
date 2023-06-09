@@ -721,7 +721,7 @@ if preferences_df is not None:
     })
 
     # Multiply NEEDS and INITIAL NEEDS by 36 for CYCLE == MS
-    course_needs.loc[course_needs["CYCLE"] == "MST", ["NEEDS", "INITIAL NEEDS"]] *= 36
+    # course_needs.loc[course_needs["CYCLE"] == "MST", ["NEEDS", "INITIAL NEEDS"]] *= 36
 
     # Add the MATCH column based on the conditionsa
     course_needs.loc[course_needs["CYCLE"] == "ME", "MATCH"] = "NO"

@@ -130,6 +130,13 @@ dsd_df = upload_excel_file("Please upload the course list")
 if dsd_df is not None:
     dsd_df["course"] = dsd_df["COURSE CODE"].astype(str) + " || " + dsd_df["COURSE NAME"].astype(str) + " || " + dsd_df["TERM"].astype(str) + " || " + dsd_df["LANGUAGE"].astype(str)
 
+    # Creat list of faculty's emails
+    faculty_list = dsd_df[dsd_df["COURSE NAME"] != "Stata"]["FACULTY EMAIL"].unique()
+
+    # Assume that BS courses without "FACULTY NAME" are teorico-practicas
+    teorico_practicas = dsd_df[(dsd_df["FACULTY NAME"].isna()) & (dsd_df["CYCLE"] == "BSC")]["COURSE NAME"].unique()
+    dsd_df = dsd_df.drop(dsd_df[(dsd_df["COURSE NAME"].isin(teorico_practicas)) & (dsd_df["FACULTY NAME"].notna())].index)
+
     if term == "S1":
         selected_terms = ["S1", "T1", "T2"]
         dsd_df = dsd_df[dsd_df['TERM'].isin(selected_terms)]
@@ -141,13 +148,6 @@ if dsd_df is not None:
         'CLASS': 'count',
         'SLOTS': np.sum
     }
-
-    # Creat list of faculty's emails
-    faculty_list = dsd_df[dsd_df["COURSE NAME"] != "Stata"]["FACULTY EMAIL"].unique()
-
-    # Assume that BS courses without "FACULTY NAME" are teorico-practicas
-    teorico_practicas = dsd_df[(dsd_df["FACULTY NAME"].isna()) & (dsd_df["CYCLE"] == "BSC")]["COURSE NAME"].unique()
-    dsd_df = dsd_df.drop(dsd_df[(dsd_df["COURSE NAME"].isin(teorico_practicas)) & (dsd_df["FACULTY NAME"].notna())].index)
     
     # OUTPUT #1: LIST OF COURSES IMPORTED
     output_1 = dsd_df.groupby(['COURSE NAME', 'TERM', 'COURSE CODE', 'LANGUAGE', 'CYCLE']).agg(agg_functions).reset_index()

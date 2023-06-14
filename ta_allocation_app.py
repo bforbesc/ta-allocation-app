@@ -796,6 +796,16 @@ if preferences_df is not None:
             if filter_value != "":
                 filtered_output_2 = filtered_output_2[filtered_output_2[filter_col].str.replace(',', '') == filter_value]
         st.write(filtered_output_2)
+        # Provide download button for the Excel file
+        filtered_output_2.to_excel("tas_leaving.xlsx", index=False)
+        with open("tas_leaving.xlsx", "rb") as file:
+            file_data = file.read()
+            st.download_button(
+                label="Download this table",
+                data=file_data,
+                file_name="tas_leaving.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     
     show_output_7 = st.checkbox("TAs who want to change contract workload")
     if show_output_7:
@@ -811,6 +821,16 @@ if preferences_df is not None:
             if filter_value != "":
                 filtered_output_7 = filtered_output_7[filtered_output_7[filter_col].str.replace(',', '') == filter_value]
         st.write(filtered_output_7)
+        # Provide download button for the Excel file
+        filtered_output_7.to_excel("tas_contract_changes.xlsx", index=False)
+        with open("tas_contract_changes.xlsx", "rb") as file:
+            file_data = file.read()
+            st.download_button(
+                label="Download this table",
+                data=file_data,
+                file_name="tas_contract_changes.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
     st.markdown('### TAs to contact', unsafe_allow_html=True)    
 
@@ -850,7 +870,7 @@ if preferences_df is not None:
         if filter_value:
             if filter_value != "":
                 filtered_output_1 = filtered_output_1[filtered_output_1[filter_col].str.replace(',', '') == filter_value]
-        st.write(filtered_output_1) 
+        st.dataframe(filtered_output_1) 
         
 
     st.markdown("""
@@ -877,7 +897,7 @@ if preferences_df is not None:
             filtered_output_10 = filtered_output_10[filtered_output_10[filter_col].str.replace(',', '') == filter_value]
     st.write(filtered_output_10)
     # Provide download button for the Excel file
-    output_10.to_excel("course_needs.xlsx", index=False)
+    filtered_output_10.to_excel("course_needs.xlsx", index=False)
     with open("course_needs.xlsx", "rb") as file:
         file_data = file.read()
         st.download_button(
